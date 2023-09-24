@@ -12,12 +12,12 @@ import com.example.orderservices.model.OrderItems;
 import com.example.orderservices.repository.OrderItemsRepository;
 import com.example.orderservices.repository.OrderRepository;
 import com.example.orderservices.response.ErrorDetails;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -31,29 +31,31 @@ public class OrderServices {
     private final OrderItemsRepository orderItemsRepository;
     private final ProductInterface productInterface;
     private final UserInterface userInterface;
+    private final CircuitBreaker circuitBreaker;
+
+
     public OrderServices(OrderRepository orderRepository,
                          OrderItemsRepository orderItemsRepository,
                          ProductInterface productInterface,
-                         UserInterface userInterface) {
+                         UserInterface userInterface, CircuitBreaker circuitBreaker) {
         this.orderRepository = orderRepository;
         this.orderItemsRepository = orderItemsRepository;
         this.productInterface = productInterface;
         this.userInterface = userInterface;
+        this.circuitBreaker = CircuitBreaker.ofDefaults("orderCircuitBreaker");
     }
 
     public Object createOrder(OrderRequestDto orderRequest){
 
         try{
+//            ResponseEntity<User> user = circuitBreaker.executeSupplier(() -> userInterface.getUserById(orderRequest.getUserId()),
+//                    throwable -> getUserByIdFallback(orderRequest.getUserId(), throwable));
+
             ResponseEntity<User> user = userInterface.getUserById(orderRequest.getUserId());
         }
         catch (FeignCustomException ex){
             log.error("An error occurred during order creation", ex);
-            HttpStatus statusCode = ex.getStatusCode();
-            ErrorDetails errorDetails = ex.getErrorDetails();
-
-            // Handle the error and response details as needed
-            return ResponseEntity.status(statusCode)
-                    .body(errorDetails);
+            return handleFeignException(ex);
         }
 
         List<ProductExistsRequestDto> orderItems = convertToProductExists(orderRequest.getOrdersList());
@@ -91,6 +93,32 @@ public class OrderServices {
         return "Order Create Successfully";
     }
 
+//    private ResponseEntity<User> getUserById(Long userId) {
+//        return userInterface.getUserById(userId);
+//    }
+
+    private ResponseEntity<ErrorDetails> handleFeignException(FeignCustomException ex) {
+        HttpStatus statusCode = ex.getStatusCode();
+        ErrorDetails errorDetails = ex.getErrorDetails();
+
+        // Handle the error and response details as needed
+        return ResponseEntity.status(statusCode)
+                .body(errorDetails);
+    }
+
+
+    private ResponseEntity<User> getUserByIdFallback(long userId, Throwable ex) {
+        // Implement your custom fallback logic here
+        log.error("Circuit is open or an error occurred while fetching user by ID", ex);
+
+        // You can return a default or custom ResponseEntity<User> here
+        // For example:
+        User user = new User();
+        user.setId(userId);
+        user.setName("Fallback User");
+        return ResponseEntity.ok(user);
+    }
+
     private List<ProductExistsRequestDto> convertToProductExists(Set<OrderItemsRequestDto> orderItemsRequestList) {
         return orderItemsRequestList.stream()
                 .map(orderItemsRequestDto -> ProductExistsRequestDto.builder()
@@ -99,70 +127,5 @@ public class OrderServices {
                         .build())
                 .collect(Collectors.toList());
     }
-
-
-//    public String createOrder(OrderRequestDto orderRequest) {
-//        try {
-//            // Fetch user details from an external service using Feign client
-//            ResponseEntity<User> user = userInterface.getUserById(orderRequest.getUserId());
-//        } catch (FeignCustomException ex) {
-//            // Handle the case where the user is not found
-//            return handleCustomError(ex, "User not found with id " + orderRequest.getUserId());
-//        }
-//
-//        // Convert OrderItemsRequestDto list to ProductExistsRequestDto list
-//        List<ProductExistsRequestDto> orderItems = convertToProductExists(orderRequest.getOrdersList());
-//
-//        try {
-//            // Validate product availability and stock levels using Feign client
-//            ResponseEntity<?> response = productInterface.getAllProductsValidation(orderItems);
-//        } catch (FeignCustomException ex) {
-//            // Handle the case where a product is not available or out of stock
-//            return handleCustomError(ex, "Product Not available or Out of stock");
-//        }
-//
-//        // Build the Order entity
-//        Order order = buildOrder(orderRequest);
-//
-//        // Save the Order entity to the repository
-//        orderRepository.save(order);
-//
-//        return "Order Create Successfully";
-//    }
-//
-//    private String handleCustomError(FeignCustomException ex, String errorMessage) {
-//        // Extract the HTTP status code from the exception and create a custom error message
-//        HttpStatus statusCode = ex.getStatusCode();
-//        return "Custom error: " + statusCode + ", Response: " + errorMessage;
-//    }
-//
-//    private Order buildOrder(OrderRequestDto orderRequest) {
-//        // Build an Order entity using the provided OrderRequestDto
-//        return Order.builder()
-//                .userId(orderRequest.getUserId())
-//                .ordersList(orderRequest.getOrdersList().stream()
-//                        .map(this::buildOrderItem)
-//                        .collect(Collectors.toSet()))
-//                .build();
-//    }
-//
-//    private OrderItems buildOrderItem(OrderItemsRequestDto orderItemsRequestDto) {
-//        // Build an OrderItems entity using the provided OrderItemsRequestDto
-//        return OrderItems.builder()
-//                .productId(orderItemsRequestDto.getProductId())
-//                .quantity(orderItemsRequestDto.getQuantity())
-//                .build();
-//    }
-//
-//    private List<ProductExistsRequestDto> convertToProductExists(Set<OrderItemsRequestDto> orderItemsRequestList) {
-//        // Convert a Set of OrderItemsRequestDto to a List of ProductExistsRequestDto
-//        return orderItemsRequestList.stream()
-//                .map(orderItemsRequestDto -> ProductExistsRequestDto.builder()
-//                        .productId(orderItemsRequestDto.getProductId())
-//                        .quantity(orderItemsRequestDto.getQuantity())
-//                        .build())
-//                .collect(Collectors.toList());
-//    }
-
 
 }

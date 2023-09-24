@@ -19,4 +19,30 @@ spring:
 server:
   port: 8203
 
+management:
+  health:
+    circuit breakers:
+      enabled: true # Enable circuit breaker health indicators
+  endpoints:
+    web:
+      exposure:
+        include: health # Expose the health endpoint
+  endpoint:
+    health:
+      show-details: always # Show detailed health information, including circuit breakers
+
+
+resilience4j:
+  circuit breaker:
+    instances:
+      orderCircuitBreaker:
+        registerHealthIndicator: true
+
+
+
+
+
+
+
+
 
